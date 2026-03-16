@@ -1,0 +1,254 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String   @default("")
+  password  String
+  role      Role     @default(STUDENT)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  studentProfile StudentProfile?
+  teacherProfile TeacherProfile?
+  recordings     Recording[]
+  conversations  Conversation[]
+}
+
+enum Role {
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+model StudentProfile {
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  classId          String?
+  class            Class?   @relation(fields: [classId], references: [id])
+  score            Float    @default(0)
+  lessonsDone      Int      @default(0)
+  practiceMin      Int      @default(0)
+  streak           Int      @default(0)
+  lastPracticeDate DateTime?
+  
+  // NEW Gamification & Personalization
+  xp               Int      @default(0)
+  weakPhonemes     Json?    
+  
+  progress         StudentProgress[]
+  badges           StudentBadge[]
+  phonemeMistakes  PhonemeMistake[]
+  liveSessions     LiveSessionParticipant[]
+}
+
+model TeacherProfile {
+  id      String   @id @default(uuid())
+  userId  String   @unique
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  classes Class[]
+  liveSessions LiveSession[]
+}
+
+model Class {
+  id          String         @id @default(uuid())
+  name        String
+  description String?        @db.Text
+  teacherId   String
+  teacher     TeacherProfile @relation(fields: [teacherId], references: [id])
+  students    StudentProfile[]
+  lessons     Lesson[]
+  liveSessions LiveSession[]
+  createdAt   DateTime       @default(now())
+}
+
+model Lesson {
+  id          String     @id @default(uuid())
+  title       String
+  description String?    @db.Text
+  difficulty  Difficulty @default(BEGINNER)
+  topic       String     @default("general")
+  classId     String?
+  class       Class?     @relation(fields: [classId], references: [id])
+  
+  // NEW: Tracking AI generation
+  isAIGenerated Boolean  @default(false)
+  
+  exercises   Exercise[]
+  createdAt   DateTime   @default(now())
+}
+
+model Exercise {
+  id               String      @id @default(uuid())
+  title            String
+  targetText       String      @db.Text
+  instructions     String?     @db.Text
+  referenceAudio   String?
+  phonemeStructure String?     @db.Text
+  difficulty       Difficulty  @default(BEGINNER)
+  type             ExerciseType @default(SENTENCE)
+  topic            String       @default("general")
+  lessonId         String?
+  lesson           Lesson?      @relation(fields: [lessonId], references: [id])
+  recordings       Recording[]
+  progress         StudentProgress[]
+  createdAt        DateTime    @default(now())
+}
+
+model Recording {
+  id          String   @id @default(uuid())
+  audioUrl    String
+  transcript  String?
+  score       Float    @default(0)
+  fluency     Float    @default(0)
+  wordStress  Float    @default(0)
+  intonation  Float    @default(0)
+  feedback    String?
+  phonemeDiff Json?    
+  
+  // NEW: Voice Confidence Analysis
+  speed       Float?   // words per minute
+  pauses      Int?     // count of long pauses
+  confidence  Float?   // confidence score
+  
+  studentId   String
+  student     User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  exerciseId  String
+  exercise    Exercise @relation(fields: [exerciseId], references: [id])
+  createdAt   DateTime @default(now())
+}
+
+model StudentProgress {
+  id          String   @id @default(uuid())
+  studentId   String
+  student     StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  exerciseId  String
+  exercise    Exercise @relation(fields: [exerciseId], references: [id])
+  completed   Boolean  @default(false)
+  bestScore   Float    @default(0)
+  attempts    Int      @default(0)
+  lastAttemptAt DateTime?
+
+  @@unique([studentId, exerciseId])
+}
+
+model Conversation {
+  id        String    @id @default(uuid())
+  title     String
+  scenario  String
+  type      ConversationType @default(SCENARIO) // NEW: differentiate tutor vs scenario
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  Message[]
+  score     Float?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           MessageRole
+  content        String       @db.Text
+  audioUrl       String?
+  score          Float?
+  createdAt      DateTime     @default(now())
+}
+
+// NEW GAMIFICATION MODELS
+model Badge {
+  id          String   @id @default(uuid())
+  name        String
+  description String
+  icon        String   // icon name or emoji
+  criteria    String   // logic reference
+  students    StudentBadge[]
+}
+
+model StudentBadge {
+  id          String   @id @default(uuid())
+  studentId   String
+  student     StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  badgeId     String
+  badge       Badge    @relation(fields: [badgeId], references: [id])
+  earnedAt    DateTime @default(now())
+  
+  @@unique([studentId, badgeId])
+}
+
+// NEW ADAPTIVE LEARNING MODEL
+model PhonemeMistake {
+  id          String   @id @default(uuid())
+  studentId   String
+  student     StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  phoneme     String   // e.g., 'th', 'v', 'r'
+  count       Int      @default(1)
+  lastSeen    DateTime @default(now())
+  
+  @@unique([studentId, phoneme])
+}
+
+// NEW LIVE SESSION MODELS
+model LiveSession {
+  id          String   @id @default(uuid())
+  classId     String
+  class       Class    @relation(fields: [classId], references: [id])
+  teacherId   String
+  teacher     TeacherProfile @relation(fields: [teacherId], references: [id])
+  status      SessionStatus @default(WAITING)
+  currentExerciseId String?
+  participants LiveSessionParticipant[]
+  createdAt   DateTime @default(now())
+  endedAt     DateTime?
+}
+
+model LiveSessionParticipant {
+  id            String   @id @default(uuid())
+  sessionId     String
+  session       LiveSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  studentId     String
+  student       StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  currentScore  Float?
+  joinedAt      DateTime @default(now())
+  
+  @@unique([sessionId, studentId])
+}
+
+enum ConversationType {
+  SCENARIO
+  TUTOR
+}
+
+enum SessionStatus {
+  WAITING
+  ACTIVE
+  COMPLETED
+}
+
+enum MessageRole {
+  USER
+  AI
+}
+
+enum Difficulty {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum ExerciseType {
+  WORD
+  SENTENCE
+  PARAGRAPH
+  CONVERSATION
+  ROLEPLAY
+}
