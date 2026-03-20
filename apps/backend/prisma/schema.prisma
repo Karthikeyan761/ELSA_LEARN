@@ -161,8 +161,10 @@ model Message {
   content        String       @db.Text
   audioUrl       String?
   score          Float?
+  phonemeDiff    Json?        // Detailed phoneme-level feedback
   createdAt      DateTime     @default(now())
 }
+
 
 // NEW GAMIFICATION MODELS
 model Badge {

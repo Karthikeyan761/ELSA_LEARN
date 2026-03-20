@@ -1,0 +1,18 @@
+# ── ELSA Pronunciation Microservice — requirements.txt ──────────────────────
+# Updated for Python 3.13 compatibility
+
+fastapi
+uvicorn[standard]
+python-multipart
+
+# AI / Speech Engines
+torch>=2.6.0
+torchaudio>=2.6.0
+openai-whisper
+speechbrain
+
+# Audio Processing
+librosa
+soundfile
+numpy
+pydantic

@@ -87,7 +87,7 @@ router.post('/start', authenticate, async (req: AuthRequest, res) => {
 
 // POST /api/conversations/:id/message - Send message to AI
 router.post('/:id/message', authenticate, async (req: AuthRequest, res) => {
-  const { userMessage, audioUrl, score } = req.body;
+  const { userMessage, audioUrl, score, phonemeDiff } = req.body;
   try {
     const conversation = await prisma.conversation.findUnique({
       where: { id: req.params.id },
@@ -95,7 +95,7 @@ router.post('/:id/message', authenticate, async (req: AuthRequest, res) => {
     });
     if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
 
-    // Save user message
+    // Save user message (with pronunciation data)
     await prisma.message.create({
       data: {
         conversationId: req.params.id,
@@ -103,8 +103,10 @@ router.post('/:id/message', authenticate, async (req: AuthRequest, res) => {
         content: userMessage,
         audioUrl: audioUrl || null,
         score: score ? parseFloat(score) : null,
+        phonemeDiff: phonemeDiff ? (typeof phonemeDiff === 'string' ? JSON.parse(phonemeDiff) : phonemeDiff) : null,
       },
     });
+
 
     // Generate AI reply using configured real AI provider (Gemini or OpenAI)
     const scenarioData = CONVERSATION_SCENARIOS[conversation.scenario] || CONVERSATION_SCENARIOS.daily;

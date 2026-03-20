@@ -1,4 +1,5 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+
 
 function getToken(): string | null {
   if (typeof window === 'undefined') return null;
@@ -34,78 +35,97 @@ async function apiFetchMultipart(path: string, formData: FormData): Promise<any>
 export const api = {
   auth: {
     login: (email: string, password: string) =>
-      apiFetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+      apiFetch('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
     register: (email: string, password: string, name: string, role: string) =>
-      apiFetch('/api/auth/register', { method: 'POST', body: JSON.stringify({ email, password, name, role }) }),
-    me: () => apiFetch('/api/auth/me'),
+      apiFetch('/auth/register', { method: 'POST', body: JSON.stringify({ email, password, name, role }) }),
+    me: () => apiFetch('/auth/me'),
   },
   exercises: {
     list: (params?: { difficulty?: string; type?: string; topic?: string; search?: string }) => {
       const qs = new URLSearchParams(params as any).toString();
-      return apiFetch(`/api/exercises${qs ? '?' + qs : ''}`);
+      return apiFetch(`/exercises${qs ? '?' + qs : ''}`);
     },
-    get: (id: string) => apiFetch(`/api/exercises/${id}`),
-    create: (data: any) => apiFetch('/api/exercises', { method: 'POST', body: JSON.stringify(data) }),
-    update: (id: string, data: any) => apiFetch(`/api/exercises/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    delete: (id: string) => apiFetch(`/api/exercises/${id}`, { method: 'DELETE' }),
-    progress: (id: string) => apiFetch(`/api/exercises/${id}/progress`),
+    get: (id: string) => apiFetch(`/exercises/${id}`),
+    create: (data: any) => apiFetch('/exercises', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: any) => apiFetch(`/exercises/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id: string) => apiFetch(`/exercises/${id}`, { method: 'DELETE' }),
+    progress: (id: string) => apiFetch(`/exercises/${id}/progress`),
   },
   recordings: {
-    upload: (formData: FormData) => apiFetchMultipart('/api/recordings/upload', formData),
-    my: () => apiFetch('/api/recordings/my'),
-    stats: () => apiFetch('/api/recordings/stats'),
+    upload: (formData: FormData) => apiFetchMultipart('/recordings/upload', formData),
+    my: () => apiFetch('/recordings/my'),
+    stats: () => apiFetch('/recordings/stats'),
   },
   classes: {
-    list: () => apiFetch('/api/classes'),
-    get: (id: string) => apiFetch(`/api/classes/${id}`),
+    list: () => apiFetch('/classes'),
+    get: (id: string) => apiFetch(`/classes/${id}`),
     create: (data: { name: string; description?: string }) =>
-      apiFetch('/api/classes', { method: 'POST', body: JSON.stringify(data) }),
-    enroll: (id: string) => apiFetch(`/api/classes/${id}/enroll`, { method: 'POST' }),
-    unenroll: (id: string) => apiFetch(`/api/classes/${id}/unenroll`, { method: 'POST' }),
+      apiFetch('/classes', { method: 'POST', body: JSON.stringify(data) }),
+    enroll: (id: string) => apiFetch(`/classes/${id}/enroll`, { method: 'POST' }),
+    unenroll: (id: string) => apiFetch(`/classes/${id}/unenroll`, { method: 'POST' }),
     addStudent: (classId: string, email: string) => 
-      apiFetch(`/api/classes/${classId}/add-student`, { method: 'POST', body: JSON.stringify({ email }) }),
+      apiFetch(`/classes/${classId}/add-student`, { method: 'POST', body: JSON.stringify({ email }) }),
     removeStudent: (classId: string, studentId: string) => 
-      apiFetch(`/api/classes/${classId}/students/${studentId}`, { method: 'DELETE' }),
+      apiFetch(`/classes/${classId}/students/${studentId}`, { method: 'DELETE' }),
     assignLesson: (classId: string, lessonId: string) =>
-      apiFetch(`/api/classes/${classId}/lessons`, { method: 'POST', body: JSON.stringify({ lessonId }) }),
-    analytics: (id: string) => apiFetch(`/api/classes/${id}/analytics`),
+      apiFetch(`/classes/${classId}/lessons`, { method: 'POST', body: JSON.stringify({ lessonId }) }),
+    analytics: (id: string) => apiFetch(`/classes/${id}/analytics`),
   },
   lessons: {
     list: (params?: { classId?: string; difficulty?: string; topic?: string }) => {
       const qs = new URLSearchParams(params as any).toString();
-      return apiFetch(`/api/lessons${qs ? '?' + qs : ''}`);
+      return apiFetch(`/lessons${qs ? '?' + qs : ''}`);
     },
-    get: (id: string) => apiFetch(`/api/lessons/${id}`),
-    create: (data: any) => apiFetch('/api/lessons', { method: 'POST', body: JSON.stringify(data) }),
-    update: (id: string, data: any) => apiFetch(`/api/lessons/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    get: (id: string) => apiFetch(`/lessons/${id}`),
+    create: (data: any) => apiFetch('/lessons', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: any) => apiFetch(`/lessons/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   },
   progress: {
-    my: () => apiFetch('/api/progress/my'),
-    dashboard: () => apiFetch('/api/progress/dashboard'),
-    teacherDashboard: () => apiFetch('/api/progress/teacher-dashboard'),
+    my: () => apiFetch('/progress/my'),
+    dashboard: () => apiFetch('/progress/dashboard'),
+    teacherDashboard: () => apiFetch('/progress/teacher-dashboard'),
   },
   conversations: {
-    scenarios: () => apiFetch('/api/conversations/scenarios'),
-    start: (scenario: string) => apiFetch('/api/conversations/start', { method: 'POST', body: JSON.stringify({ scenario }) }),
-    list: () => apiFetch('/api/conversations'),
-    get: (id: string) => apiFetch(`/api/conversations/${id}`),
-    message: (id: string, userMessage: string, score?: number) =>
-      apiFetch(`/api/conversations/${id}/message`, { method: 'POST', body: JSON.stringify({ userMessage, score }) }),
+    scenarios: () => apiFetch('/conversations/scenarios'),
+    start: (scenario: string) => apiFetch('/conversations/start', { method: 'POST', body: JSON.stringify({ scenario }) }),
+    list: () => apiFetch('/conversations'),
+    get: (id: string) => apiFetch(`/conversations/${id}`),
+    message: (id: string, userMessage: string, score?: number, phonemeDiff?: any) =>
+      apiFetch(`/conversations/${id}/message`, { method: 'POST', body: JSON.stringify({ userMessage, score, phonemeDiff }) }),
   },
   ai: {
-    analyzePronunciation: (targetText: string, transcript: string) => {
-      // The AI service runs on port 4001
-      return fetch('http://localhost:4001/api/ai/analyze-pronunciation', {
+    analyzePronunciation: async (targetText: string, audioBlob: Blob) => {
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'recording.wav');
+      formData.append('targetText', targetText);
+
+      try {
+        const res = await fetch(`${API_BASE}/ai/analyze-pronunciation`, {
+          method: 'POST',
+          body: formData,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'AI analysis failed');
+        return data;
+      } catch (err: any) {
+        console.error('AI Service Error:', err);
+        throw err;
+      }
+    },
+    transcribe: async (audioBlob: Blob) => {
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'recording.wav');
+
+      const res = await fetch(`${API_BASE}/ai/transcribe`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetText, transcript })
-      }).then(res => res.json());
+        body: formData,
+      });
+      return res.json();
     }
   },
   tutor: {
     chat: (message: string, history: any[]) => {
-      // AI Tutor Microservice runs on port 4004
-      return fetch('http://localhost:4004/api/tutor/chat', {
+      return fetch(`${API_BASE}/tutor/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, history })

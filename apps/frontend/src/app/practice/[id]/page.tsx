@@ -33,6 +33,7 @@ export default function PracticePage() {
   const [exercise, setExercise] = useState<Exercise | null>(null);
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
+  const [listening, setListening] = useState(false);
   const [results, setResults] = useState<any>(null);
   const [saved, setSaved] = useState(false);
   const [savingError, setSavingError] = useState('');
@@ -48,126 +49,145 @@ export default function PracticePage() {
     topic: 'restaurant',
   };
 
-  const { transcript, listening, resetTranscript, browserSupportsSpeechRecognition } = useSpeechRecognition();
-
   useEffect(() => {
     if (demoMode) {
       setExercise(DEFAULT_EXERCISE);
       setLoading(false);
-      return;
+    } else if (exerciseId) {
+      api.exercises.get(exerciseId)
+        .then(setExercise)
+        .catch((err) => {
+          console.error('Failed to load exercise:', err);
+          setExercise(null);
+        })
+        .finally(() => setLoading(false));
     }
-    api.exercises.get(exerciseId)
-      .then(setExercise)
-      .catch(() => setExercise(DEFAULT_EXERCISE))
-      .finally(() => setLoading(false));
-  }, [exerciseId]);
+  }, [exerciseId, demoMode]);
 
-  const startRecording = () => {
-    resetTranscript();
-    setResults(null);
-    setSaved(false);
-    SpeechRecognition.startListening({ continuous: true, language: 'en-US' });
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [transcript, setTranscript] = useState('');
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      chunksRef.current = [];
+      setTranscript('');
+      setResults(null);
+      setSaved(false);
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: 'audio/wav' });
+        setAudioBlob(blob);
+        // Stop all tracks to release mic
+        stream.getTracks().forEach(t => t.stop());
+      };
+
+      recorder.start();
+      setListening(true);
+    } catch (err) {
+      console.error('Microphone access denied:', err);
+      alert('Please allow microphone access to practice pronunciation.');
+    }
   };
 
-  const stopRecording = () => SpeechRecognition.stopListening();
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+      setListening(false);
+    }
+  };
 
   const calculateSimilarity = (spoken: string, target: string) => {
     const sWords = spoken.toLowerCase().replace(/[^a-z0-9 ']/g, '').split(' ').filter(Boolean);
     const tWords = target.toLowerCase().replace(/[^a-z0-9 ']/g, '').split(' ').filter(Boolean);
 
     let matched = 0;
-    const wordResults: { word: string; correct: boolean }[] = [];
+    const wordResults: { word: string; correct: boolean; similarity: number }[] = [];
 
     tWords.forEach((tw) => {
       const isMatch = sWords.some((sw) => sw === tw || sw.replace(/[^a-z]/g, '') === tw.replace(/[^a-z]/g, ''));
       if (isMatch) matched++;
-      wordResults.push({ word: tw, correct: isMatch });
+      wordResults.push({ word: tw, correct: isMatch, similarity: isMatch ? 1.0 : 0.0 });
     });
 
     const baseScore = tWords.length ? Math.round((matched / tWords.length) * 100) : 0;
-    const fluency = Math.min(100, baseScore + Math.floor(Math.random() * 10) - 3);
-    const intonation = Math.min(100, baseScore + Math.floor(Math.random() * 12) - 5);
-    const wordStress = Math.min(100, baseScore + Math.floor(Math.random() * 8) - 2);
-    const finalScore = Math.min(100, Math.max(0, baseScore + Math.floor(Math.random() * 8) - 4));
-
     return {
-      score: finalScore,
-      fluency,
-      intonation,
-      wordStress,
+      score: baseScore,
+      fluency: baseScore - 5,
+      intonation: baseScore - 5,
+      wordStress: baseScore - 5,
       wordResults,
-      feedback:
-        finalScore > 85
-          ? 'Excellent! Very natural pronunciation.'
-          : finalScore > 70
-          ? 'Good effort! Focus on the highlighted words.'
-          : finalScore > 50
-          ? 'Keep practicing — try reading the sentence slowly first.'
-          : "Let's try again. Listen to the reference and repeat slowly.",
+      transcript: spoken,
+      feedback: baseScore > 80 ? 'Good effort local-match!' : 'Keep practicing local-match!',
     };
   };
 
   const analyzeAudio = async () => {
+    if (!audioBlob && !transcript) return;
     setAnalyzing(true);
-    let res: any;
+    setResults(null);
+    
     try {
-      // Connect to the AI backend microservice for actual phoneme analysis
-      const aiResponse = await api.ai.analyzePronunciation(exercise?.targetText || '', transcript);
-      
-      res = {
-        score: aiResponse.score,
-        fluency: aiResponse.fluency,
-        intonation: aiResponse.intonation,
-        wordStress: aiResponse.wordStress,
-        wordResults: aiResponse.phonemeDiff, // Map property to what UI expects
-        feedback: aiResponse.feedback
-      };
-      
-      setResults(res);
-    } catch (err) {
-      console.error('Failed to connect to AI backend:', err);
-      // Fallback
-      res = calculateSimilarity(transcript, exercise?.targetText || '');
-      setResults(res);
-    }
-    setAnalyzing(false);
+      if (audioBlob) {
+        // ── Real AI Analysis (Whisper + SpeechBrain) ─────────────────────────
+        const data = await api.ai.analyzePronunciation(exercise?.targetText || '', audioBlob);
+        
+        setResults({
+          score: data.score,
+          fluency: data.fluency,
+          intonation: data.intonation,
+          wordStress: data.wordStress,
+          wordResults: data.phonemeDiff, // correct/incorrect words heatmap
+          confidence: data.confidence,
+          speed: data.speed,
+          pauses: data.pauses,
+          feedback: data.feedback,
+          transcript: data.transcript,
+          engine: data.engine
+        });
+        setTranscript(data.transcript);
 
-    // Save to backend if authenticated and not demo
-    if (user && !demoMode && exercise && res) {
-      try {
-        const formData = new FormData();
-        formData.append('exerciseId', exercise.id);
-        formData.append('score', String(res.score));
-        formData.append('fluency', String(res.fluency));
-        formData.append('wordStress', String(res.wordStress));
-        formData.append('intonation', String(res.intonation));
-        formData.append('feedback', res.feedback);
-        formData.append('transcript', transcript);
-        formData.append('phonemeDiff', JSON.stringify(res.wordResults));
-        // Create a tiny audio blob placeholder since we're using Web Speech API for transcript
-        const blob = new Blob(['audio-placeholder'], { type: 'audio/webm' });
-        formData.append('audio', blob, 'recording.webm');
-        await api.recordings.upload(formData);
-        setSaved(true);
-      } catch (e: any) {
-        setSavingError('Result saved locally but could not sync to server.');
+        // Save progress if authenticated
+        if (user && !demoMode && exercise) {
+          try {
+            const formData = new FormData();
+            formData.append('exerciseId', exercise.id);
+            formData.append('score', String(data.score));
+            formData.append('fluency', String(data.fluency));
+            formData.append('wordStress', String(data.wordStress));
+            formData.append('intonation', String(data.intonation));
+            formData.append('feedback', data.feedback);
+            formData.append('transcript', data.transcript);
+            formData.append('phonemeDiff', JSON.stringify(data.phonemeDiff));
+            formData.append('audio', audioBlob, 'pronunciation.wav');
+            await api.recordings.upload(formData);
+            setSaved(true);
+          } catch (e) {
+            console.error('Failed to save to cloud:', e);
+            setSavingError('Saved locally only.');
+          }
+        }
+      } else {
+        throw new Error('No audio captured');
       }
+    } catch (err: any) {
+      console.warn('Real AI failed, using fallback:', err.message);
+      // Fallback: use a simple transcribe + local match if audio fails but transcript was there
+      // (though in this version we need real audio for the AI service)
+      const res = calculateSimilarity(transcript, exercise?.targetText || '');
+      setResults(res);
+    } finally {
+      setAnalyzing(false);
     }
   };
-
-  if (!browserSupportsSpeechRecognition) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-        <div className="bg-white p-8 rounded-2xl shadow-lg max-w-md border border-red-100 text-center">
-          <h2 className="text-2xl font-bold text-red-500 mb-4">Browser Not Supported</h2>
-          <p className="text-slate-600">Please use Google Chrome for the best experience with speech recognition.</p>
-          <Link href="/student" className="mt-6 inline-block text-indigo-600 hover:text-indigo-800 underline font-medium">
-            ← Back to Dashboard
-          </Link>
-        </div>
-      </div>
-    );
-  }
 
   if (loading) {
     return (
@@ -188,7 +208,7 @@ export default function PracticePage() {
           ← Library
         </Link>
         <div className="font-semibold px-4 py-1.5 rounded-full bg-white border border-slate-200 text-slate-700 shadow-sm text-sm">
-          🎤 Practice Room
+          🎙️ High-Res AI Practice
         </div>
         <Link href="/student" className="text-slate-500 hover:text-indigo-600 text-sm font-medium">
           Dashboard →
@@ -216,7 +236,6 @@ export default function PracticePage() {
         <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm">
           <div className="flex items-center gap-5">
             <button
-              id="record-btn"
               onClick={listening ? stopRecording : startRecording}
               className={`w-20 h-20 rounded-full flex items-center justify-center text-3xl transition-all shadow-lg flex-shrink-0 ${
                 listening
@@ -227,8 +246,8 @@ export default function PracticePage() {
               {listening ? '⏹' : '🎤'}
             </button>
             <div>
-              <h3 className="text-lg font-bold text-slate-900">{listening ? 'Recording...' : 'Tap to start speaking'}</h3>
-              <p className="text-slate-500 text-sm">{listening ? 'Listening to your pronunciation...' : 'Read the sentence above clearly and naturally'}</p>
+              <h3 className="text-lg font-bold text-slate-900">{listening ? 'Recording...' : audioBlob ? 'Done recording' : 'Tap to start speaking'}</h3>
+              <p className="text-slate-500 text-sm">{listening ? 'Listening to your pronunciation...' : audioBlob ? 'Audio captured! Proceed to analysis.' : 'Read the sentence above clearly and naturally'}</p>
               {listening && (
                 <div className="flex gap-1 mt-2">
                   {[...Array(5)].map((_, i) => (
@@ -240,34 +259,24 @@ export default function PracticePage() {
           </div>
         </div>
 
-        {/* Transcript */}
-        <div className="bg-indigo-50 rounded-3xl p-5 border border-indigo-100">
-          <span className="text-xs font-bold text-indigo-500 uppercase tracking-wider block mb-2">What you said:</span>
-          <p className="text-lg text-slate-800 italic font-medium min-h-[2em]">
-            {transcript ? `"${transcript}"` : <span className="text-slate-400 font-normal not-italic">Start recording to see your speech...</span>}
-          </p>
-          {!listening && transcript && (
-            <button
-              id="analyze-btn"
-              onClick={analyzeAudio}
-              disabled={analyzing}
-              className="mt-4 w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed rounded-2xl text-white font-bold transition-all shadow-sm"
-            >
-              {analyzing ? '✨ Analyzing...' : '✨ Get AI Feedback'}
-            </button>
-          )}
-        </div>
-
-        {/* Analyzing Animation */}
-        {analyzing && (
-          <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm flex flex-col items-center gap-4">
-            <div className="flex gap-2">
-              {[...Array(5)].map((_, i) => (
-                <div key={i} className="w-2.5 h-10 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
-              ))}
-            </div>
-            <p className="text-slate-500 text-sm animate-pulse">Analyzing phonemes and pronunciation patterns...</p>
-          </div>
+        {/* Action Button */}
+        {!listening && audioBlob && !results && (
+          <button
+            id="analyze-btn"
+            onClick={analyzeAudio}
+            disabled={analyzing}
+            className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed rounded-3xl text-white font-black text-lg transition-all shadow-xl shadow-indigo-100 flex items-center justify-center gap-2"
+          >
+            {analyzing ? (
+              <>
+                <svg className="animate-spin h-5 w-5 text-white" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                AI is thinking...
+              </>
+            ) : '✨ Generate Detailed AI Feedback'}
+          </button>
         )}
 
         {/* Results */}
@@ -321,8 +330,23 @@ export default function PracticePage() {
                       {w.word}
                     </span>
                     {!w.correct && (
-                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-[200px] z-10 hidden group-hover:block bg-slate-800 text-white text-xs p-2 rounded-lg shadow-xl">
-                        Sounded incorrect. Focus on the phonemes in "{w.word}". Click the reference audio to hear it again.
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-[250px] z-10 hidden group-hover:block bg-slate-800 text-white text-xs p-3 rounded-xl shadow-xl">
+                        <div className="font-semibold mb-2 border-b border-slate-600 pb-1 text-slate-200">Phoneme Breakdown</div>
+                        {w.phonemes && w.phonemes.length > 0 ? (
+                          <div className="flex flex-wrap gap-1 mb-1">
+                            {w.phonemes.map((p: any, idx: number) => {
+                              const isSoundCorrect = p.correct !== undefined ? p.correct : (p.score == null || p.score >= 70);
+                              return (
+                                <span key={idx} className={`px-1 rounded ${isSoundCorrect ? 'text-emerald-300' : 'bg-red-500/30 text-red-300 font-bold'}`}>
+                                  /{p.ipa || p.phoneme || p.label || p.text}/
+                                </span>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-slate-300">Sounded incorrect. Practice saying "{w.word}" clearly.</p>
+                        )}
+                        <p className="mt-2 text-[10px] text-slate-400">Red highlights note missed sounds.</p>
                         <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
                       </div>
                     )}
@@ -342,7 +366,7 @@ export default function PracticePage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <button
                 id="retry-btn"
-                onClick={() => { resetTranscript(); setResults(null); setSaved(false); setSavingError(''); }}
+                onClick={() => { setTranscript(''); setAudioBlob(null); setResults(null); setSaved(false); setSavingError(''); }}
                 className="py-3 rounded-2xl border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 hover:border-indigo-300 hover:text-indigo-700 transition-all text-sm"
               >
                 🔄 Try Again

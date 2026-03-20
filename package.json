@@ -8,7 +8,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently \"npm run dev -w @elsa-clone/backend\" \"npm run dev -w @elsa-clone/ai\" \"npm run dev -w @elsa-clone/gamification\" \"npm run dev -w @elsa-clone/recommendation\" \"npm run dev -w @elsa-clone/ai-tutor\" \"npm run dev -w frontend\"",
+    "dev": "concurrently \"npm run dev -w nest-backend\" \"npm run dev -w frontend\"",
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present"
   },

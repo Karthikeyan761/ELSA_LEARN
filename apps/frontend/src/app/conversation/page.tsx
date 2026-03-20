@@ -17,6 +17,7 @@ interface Message {
   role: 'USER' | 'AI';
   content: string;
   score?: number;
+  phonemeDiff?: any;
 }
 
 const SCENARIO_EMOJIS: Record<string, string> = {
@@ -61,37 +62,104 @@ export default function ConversationPage() {
     try {
       const conv = await api.conversations.start(scenario.id);
       setConversationId(conv.id);
-      setMessages(conv.messages || [{ role: 'AI', content: scenario.opening }]);
+      const initialMessages = conv.messages || [{ role: 'AI', content: scenario.opening }];
+      setMessages(initialMessages);
+      speakText(initialMessages[initialMessages.length - 1].content);
     } catch {
       setMessages([{ role: 'AI', content: scenario.opening }]);
+      speakText(scenario.opening);
     } finally {
       setStarting(false);
     }
   };
 
-  const sendMessage = async () => {
-    if (!transcript.trim()) return;
-    const userMsg: Message = { role: 'USER', content: transcript };
-    setMessages((prev) => [...prev, userMsg]);
-    const msgText = transcript;
-    resetTranscript();
-    SpeechRecognition.stopListening();
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
+  const toggleRecording = async () => {
+    if (listening) {
+      SpeechRecognition.stopListening();
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+    } else {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const recorder = new MediaRecorder(stream);
+        mediaRecorderRef.current = recorder;
+        chunksRef.current = [];
+
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) chunksRef.current.push(e.data);
+        };
+
+        recorder.onstop = () => {
+          const blob = new Blob(chunksRef.current, { type: 'audio/wav' });
+          handleRecordingStop(blob);
+          stream.getTracks().forEach(t => t.stop());
+        };
+
+        recorder.start();
+        resetTranscript();
+        SpeechRecognition.startListening({ continuous: false, language: 'en-US' });
+      } catch (err) {
+        console.error('Microphone access denied:', err);
+      }
+    }
+  };
+
+  const handleRecordingStop = async (blob: Blob) => {
+    // sometimes transcript is captured by speech recognition, use it, or fallback to an empty string to let AI transcribe.
+    let msgText = transcript;
+    
     setAiThinking(true);
+    let finalPhonemeDiff: any = null;
+
+    try {
+      // Analyze pronunciation to get phoneme feedback and a transcript if empty
+      const pnData = await api.ai.analyzePronunciation(msgText, blob);
+      finalPhonemeDiff = pnData.phonemeDiff;
+      if (!msgText.trim()) msgText = pnData.transcript; // fallback if speech reco missed it
+    } catch(e) {
+      console.warn('Pronunciation error:', e);
+    }
+    
+    if (!msgText?.trim()) {
+      setAiThinking(false);
+      resetTranscript();
+      return; 
+    }
+
+    const userMsg: Message = { role: 'USER', content: msgText, phonemeDiff: finalPhonemeDiff };
+    setMessages((prev) => [...prev, userMsg]);
+    resetTranscript();
 
     try {
       let reply = '';
       if (conversationId) {
-        const data = await api.conversations.message(conversationId, msgText);
+        const data = await api.conversations.message(conversationId, msgText, undefined, finalPhonemeDiff);
         reply = data.reply;
       } else {
-        // Fallback local response
         reply = "I understand. Could you tell me more about that?";
       }
       setMessages((prev) => [...prev, { role: 'AI', content: reply }]);
+      speakText(reply);
     } catch {
-      setMessages((prev) => [...prev, { role: 'AI', content: "I'm here — could you repeat that?" }]);
+      const errorReply = "I'm here — could you repeat that?";
+      setMessages((prev) => [...prev, { role: 'AI', content: errorReply }]);
+      speakText(errorReply);
     } finally {
       setAiThinking(false);
+    }
+  };
+
+  const speakText = (text: string) => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel(); // Stop any current speech
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'en-US';
+      utterance.rate = 0.95; // Slightly slower for language learners
+      window.speechSynthesis.speak(utterance);
     }
   };
 
@@ -225,6 +293,30 @@ export default function ConversationPage() {
                   }`}
                 >
                   {msg.content}
+                  
+                  {msg.phonemeDiff && msg.role === 'USER' && (
+                    <div className="mt-3 pt-3 border-t border-indigo-500/30 flex flex-wrap gap-1.5">
+                      {msg.phonemeDiff.map((w: any, idx: number) => (
+                        <div key={idx} className="group relative">
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[11px] font-medium border ${
+                              w.correct 
+                                ? 'bg-indigo-500/30 text-indigo-100 border-indigo-400/30' 
+                                : 'bg-rose-500/80 text-white border-rose-400/50'
+                            }`}
+                          >
+                            {w.word}
+                          </span>
+                          {!w.correct && (
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-slate-800 text-white text-[10px] py-1 px-2 rounded whitespace-nowrap z-10 shadow-lg">
+                               Practice this word
+                               <div className="absolute top-full left-1/2 -translate-x-1/2 border-2 border-transparent border-t-slate-800"></div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -254,7 +346,7 @@ export default function ConversationPage() {
             <div className="flex items-center gap-3">
               <button
                 id="conv-record-btn"
-                onClick={listening ? sendMessage : () => { resetTranscript(); SpeechRecognition.startListening({ continuous: false, language: 'en-US' }); }}
+                onClick={toggleRecording}
                 disabled={aiThinking}
                 className={`w-14 h-14 rounded-full flex items-center justify-center text-xl transition-all shadow-lg flex-shrink-0 ${
                   listening
@@ -269,7 +361,7 @@ export default function ConversationPage() {
               </div>
               {transcript && !listening && (
                 <button
-                  onClick={sendMessage}
+                  onClick={() => handleRecordingStop(new Blob())}
                   disabled={aiThinking}
                   className="w-14 h-14 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center text-xl shadow-lg disabled:opacity-50 transition-all"
                 >

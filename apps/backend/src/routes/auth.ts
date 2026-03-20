@@ -38,6 +38,11 @@ router.post('/register', async (req, res) => {
 
 // Login
 router.post('/login', async (req, res) => {
+  console.log('Login attempt:', {
+    body: req.body,
+    origin: req.get('origin'),
+    userAgent: req.get('user-agent'),
+  });
   const { email, password } = req.body;
   try {
     const user = await prisma.user.findUnique({ where: { email } });
@@ -49,6 +54,7 @@ router.post('/login', async (req, res) => {
     const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
   } catch (err) {
+    console.error('Login error:', err);
     res.status(500).json({ error: 'Login error' });
   }
 });
