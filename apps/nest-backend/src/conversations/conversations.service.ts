@@ -131,14 +131,18 @@ export class ConversationsService {
   }
 
   private async generateAIReply(scenarioData: any, history: any[], userMessage: string): Promise<string> {
-    if (!process.env.GEMINI_API_KEY && !process.env.OPENAI_API_KEY) {
+    const geminiKey = process.env.GEMINI_API_KEY;
+    const openaiKey = process.env.OPENAI_API_KEY;
+
+    if (!geminiKey && !openaiKey) {
       return `(MOCK AI MODE) - Please add API keys to apps/nest-backend/.env! Your message was: "${userMessage}"`;
     }
 
-    try {
-      if (process.env.GEMINI_API_KEY) {
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    // 1. Try Gemini
+    if (geminiKey) {
+      try {
+        const genAI = new GoogleGenerativeAI(geminiKey);
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
         const geminiHistory: Content[] = [
           { role: "user", parts: [{ text: scenarioData.systemPrompt }] },
@@ -152,10 +156,20 @@ export class ConversationsService {
         const chat = model.startChat({ history: geminiHistory });
         const result = await chat.sendMessage(userMessage);
         return result.response.text();
+      } catch (err: any) {
+        console.error('Gemini Error:', err.message);
+        if (!openaiKey) {
+           if (err.message?.includes('429')) return "Wait a moment... too many students are talking to me! Please try again in 1 minute. (Rate Limit Hit)";
+           return `(AI Error - Gemini) - ${err.message}`;
+        }
+        // If OpenAI key exists, we fall through to the next block
       }
+    }
 
-      if (process.env.OPENAI_API_KEY) {
-        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    // 2. Try OpenAI
+    if (openaiKey) {
+      try {
+        const openai = new OpenAI({ apiKey: openaiKey });
         const completion = await openai.chat.completions.create({
           model: "gpt-4o-mini",
           messages: [
@@ -168,12 +182,12 @@ export class ConversationsService {
           ]
         });
         return completion.choices[0].message.content || "Sorry, I couldn't respond.";
+      } catch (err: any) {
+        console.error('OpenAI Error:', err.message);
+        return `(AI Error - OpenAI) - ${err.message}`;
       }
-    } catch (err: any) {
-      console.error('AI Error:', err);
-      return `(AI Error) - ${err.message}`;
     }
 
-    return "Technical error occurred.";
+    return "Technical error: No AI provider responded.";
   }
 }
