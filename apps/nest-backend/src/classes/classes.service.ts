@@ -50,6 +50,16 @@ export class ClassesService {
     });
   }
 
+  async unenroll(classId: string, userId: string) {
+    const student = await this.prisma.studentProfile.findUnique({ where: { userId } });
+    if (!student) throw new UnauthorizedException('Student profile required');
+
+    return this.prisma.studentProfile.update({
+      where: { id: student.id },
+      data: { classId: null },
+    });
+  }
+
   async addStudent(classId: string, studentEmail: string) {
     const user = await this.prisma.user.findUnique({ where: { email: studentEmail }, include: { studentProfile: true } });
     if (!user || !user.studentProfile) throw new NotFoundException('Student not found');
@@ -57,6 +67,29 @@ export class ClassesService {
     return this.prisma.studentProfile.update({
       where: { id: user.studentProfile.id },
       data: { classId },
+    });
+  }
+
+  async removeStudent(classId: string, studentId: string) {
+    // studentId here is the userId from the user profile, but let's check what the frontend sends.
+    // In teacher-dashboard, it usually sends the profile ID or userId.
+    // Looking at getAnalytics, it returns 'id: s.user.id' and 'realProfileId: s.id'.
+    // Usually, studentId in these contexts refers to the userId.
+    
+    const student = await this.prisma.studentProfile.findFirst({
+      where: { 
+        OR: [
+          { id: studentId },
+          { userId: studentId }
+        ]
+      }
+    });
+
+    if (!student) throw new NotFoundException('Student profile not found');
+
+    return this.prisma.studentProfile.update({
+      where: { id: student.id },
+      data: { classId: null },
     });
   }
 
