@@ -4,8 +4,9 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
+import { Suspense } from 'react';
 
-export default function RegisterPage() {
+function RegisterPage() {
   const { register } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -140,5 +141,17 @@ export default function RegisterPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function RegisterPageWrapper() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center p-4">
+        <div className="text-slate-500 font-medium">Loading registration form...</div>
+      </div>
+    }>
+      <RegisterPage />
+    </Suspense>
   );
 }

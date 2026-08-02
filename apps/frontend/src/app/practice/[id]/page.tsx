@@ -1,7 +1,7 @@
 "use client";
 
 import 'regenerator-runtime/runtime';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition';
@@ -24,7 +24,7 @@ const DIFFICULTY_COLOR: Record<string, string> = {
   ADVANCED: 'text-red-600 bg-red-50 border-red-200',
 };
 
-export default function PracticePage() {
+function PracticePage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const { user } = useAuth();
@@ -388,5 +388,17 @@ export default function PracticePage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function PracticePageWrapper() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="text-slate-500 font-medium">Loading practice exercise...</div>
+      </div>
+    }>
+      <PracticePage />
+    </Suspense>
   );
 }
